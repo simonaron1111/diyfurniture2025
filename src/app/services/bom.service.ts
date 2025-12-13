@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, of } from 'rxjs';
-import { delay, map } from 'rxjs/operators';
+import { delay, map, catchError } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
 import {
   BomItem,
@@ -19,13 +19,56 @@ export interface FurnitureBackendItem {
   depth: number;
 }
 
+// Backend DTO interfaces
+export interface ComponentListDTO {
+  id: number;
+  createdBy: number;
+  createdAt: string; // ISO date string
+  updatedAt: string; // ISO date string
+  furnitureBodyId?: number;
+  rawMaterials?: RawMaterialDTO[];
+}
+
+export interface RawMaterialDTO {
+  id: number;
+  height: number;
+  width: number;
+  length: number;
+  quantity: number;
+  rawMaterialTypeName: string;
+  createdAt: string; // ISO date string
+  updatedAt: string; // ISO date string
+}
+
+export interface FurnitureBodyDTO {
+  id?: number;
+  width: number;
+  heigth: number; // Note: backend uses "heigth" (typo)
+  depth: number;
+  thickness: number;
+  frontElements?: FrontElementDTO[];
+  mainFrontElementId?: number;
+}
+
+export interface FrontElementDTO {
+  id?: number;
+  furnitureBodyId?: number;
+  elementType: string;
+  posX: number;
+  posY: number;
+  width: number;
+  height: number;
+  details?: string;
+  rawMaterialTypeName?: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
 export class BomService {
-  private readonly baseUrl = environment.apiBase;
+  private readonly baseUrl = environment.apiBase + '/api';
 
-  // Mock data - Raw Material Types
+  // Mock data - Raw Material Types (kept for fallback)
   private readonly MOCK_RAW_MATERIAL_TYPES: RawMaterialType[] = [
     { id: 1, name: 'Fenyőfa', created_at: new Date('2024-01-01'), updated_at: new Date('2024-01-01') },
     { id: 2, name: 'Bükkfa', created_at: new Date('2024-01-01'), updated_at: new Date('2024-01-01') },
@@ -35,7 +78,7 @@ export class BomService {
     { id: 6, name: 'MDF', created_at: new Date('2024-01-01'), updated_at: new Date('2024-01-01') },
   ];
 
-  // Mock data - Manufactured Component Types
+  // Mock data - Manufactured Component Types (kept for fallback)
   private readonly MOCK_MANUFACTURED_COMPONENT_TYPES: ManufacturedComponentType[] = [
     { id: 1, name: 'Fém kilincs', created_at: new Date('2024-01-01'), updated_at: new Date('2024-01-01') },
     { id: 2, name: 'Fa kilincs', created_at: new Date('2024-01-01'), updated_at: new Date('2024-01-01') },
@@ -46,115 +89,53 @@ export class BomService {
     { id: 7, name: 'Pant', created_at: new Date('2024-01-01'), updated_at: new Date('2024-01-01') },
   ];
 
-  // Mock data - Component List with Raw Materials and Manufactured Components
+  // Mock data - Component List (kept for regenerateBom fallback)
   private readonly MOCK_COMPONENT_LIST: ComponentList = {
     id: 1,
     created_by: 1,
     created_at: new Date('2024-01-15'),
     updated_at: new Date('2024-01-20'),
-    raw_materials: [
-      {
-        id: 1,
-        height: 50,
-        width: 200,
-        length: 800,
-        raw_material_type_id: 1,
-        manufactured_component_type_id: null,
-        quantity: 4,
-        created_at: new Date('2024-01-15'),
-        updated_at: new Date('2024-01-15'),
-        raw_material_type: this.MOCK_RAW_MATERIAL_TYPES[0], // Fenyőfa
-      },
-      {
-        id: 2,
-        height: 50,
-        width: 200,
-        length: 600,
-        raw_material_type_id: 1,
-        manufactured_component_type_id: null,
-        quantity: 2,
-        created_at: new Date('2024-01-15'),
-        updated_at: new Date('2024-01-15'),
-        raw_material_type: this.MOCK_RAW_MATERIAL_TYPES[0], // Fenyőfa
-      },
-      {
-        id: 3,
-        height: 20,
-        width: 800,
-        length: 600,
-        raw_material_type_id: 6,
-        manufactured_component_type_id: null,
-        quantity: 1,
-        created_at: new Date('2024-01-15'),
-        updated_at: new Date('2024-01-15'),
-        raw_material_type: this.MOCK_RAW_MATERIAL_TYPES[5], // MDF
-      },
-      {
-        id: 4,
-        height: 5,
-        width: 800,
-        length: 600,
-        raw_material_type_id: 5,
-        manufactured_component_type_id: null,
-        quantity: 1,
-        created_at: new Date('2024-01-15'),
-        updated_at: new Date('2024-01-15'),
-        raw_material_type: this.MOCK_RAW_MATERIAL_TYPES[4], // Üveg
-      },
-      {
-        id: 5,
-        height: 30,
-        width: 30,
-        length: 400,
-        raw_material_type_id: 4,
-        manufactured_component_type_id: null,
-        quantity: 2,
-        created_at: new Date('2024-01-15'),
-        updated_at: new Date('2024-01-15'),
-        raw_material_type: this.MOCK_RAW_MATERIAL_TYPES[3], // Alumínium
-      },
-    ],
-    manufactured_components: [
-      {
-        id: 1,
-        component_list_id: 1,
-        manufactured_component_type_id: 1,
-        quantity: 2,
-        created_at: new Date('2024-01-15'),
-        updated_at: new Date('2024-01-15'),
-        manufactured_component_type: this.MOCK_MANUFACTURED_COMPONENT_TYPES[0], // Fém kilincs
-      },
-      {
-        id: 2,
-        component_list_id: 1,
-        manufactured_component_type_id: 3,
-        quantity: 1,
-        created_at: new Date('2024-01-15'),
-        updated_at: new Date('2024-01-15'),
-        manufactured_component_type: this.MOCK_MANUFACTURED_COMPONENT_TYPES[2], // Zár
-      },
-      {
-        id: 3,
-        component_list_id: 1,
-        manufactured_component_type_id: 4,
-        quantity: 16,
-        created_at: new Date('2024-01-15'),
-        updated_at: new Date('2024-01-15'),
-        manufactured_component_type: this.MOCK_MANUFACTURED_COMPONENT_TYPES[3], // Csavar (M6x40)
-      },
-      {
-        id: 4,
-        component_list_id: 1,
-        manufactured_component_type_id: 7,
-        quantity: 2,
-        created_at: new Date('2024-01-15'),
-        updated_at: new Date('2024-01-15'),
-        manufactured_component_type: this.MOCK_MANUFACTURED_COMPONENT_TYPES[6], // Pant
-      },
-    ],
+    raw_materials: [],
+    manufactured_components: [],
   };
-
+  
   constructor(private http: HttpClient) {}
+
+  /**
+   * Maps backend ComponentListDTO to frontend ComponentList model
+   */
+  private mapDtoToComponentList(dto: ComponentListDTO): ComponentList {
+    const componentList: ComponentList = {
+      id: dto.id,
+      created_by: dto.createdBy,
+      created_at: new Date(dto.createdAt),
+      updated_at: new Date(dto.updatedAt),
+      raw_materials: [],
+      manufactured_components: [], // Backend doesn't return this yet
+    };
+
+    if (dto.rawMaterials) {
+      componentList.raw_materials = dto.rawMaterials.map(rm => ({
+        id: rm.id,
+        height: rm.height,
+        width: rm.width,
+        length: rm.length,
+        raw_material_type_id: 0, // Will be resolved by name lookup
+        manufactured_component_type_id: null,
+        quantity: rm.quantity,
+        created_at: new Date(rm.createdAt),
+        updated_at: new Date(rm.updatedAt),
+        raw_material_type: {
+          id: 0, // Will be resolved
+          name: rm.rawMaterialTypeName,
+          created_at: new Date(rm.createdAt),
+          updated_at: new Date(rm.updatedAt),
+        },
+      }));
+    }
+
+    return componentList;
+  }
 
   /**
    * Converts ComponentList to unified BomItem array for UI display
@@ -167,7 +148,7 @@ export class BomService {
     if (componentList.raw_materials) {
       for (const rawMaterial of componentList.raw_materials) {
         const materialType = rawMaterial.raw_material_type || 
-          this.MOCK_RAW_MATERIAL_TYPES.find(t => t.id === rawMaterial.raw_material_type_id);
+          this.MOCK_RAW_MATERIAL_TYPES.find((t: RawMaterialType) => t.id === rawMaterial.raw_material_type_id);
         
         // Calculate weight (simplified: density * volume)
         const volume = (rawMaterial.length * rawMaterial.width * rawMaterial.height) / 1000000; // Convert to m³
@@ -196,7 +177,7 @@ export class BomService {
     if (componentList.manufactured_components) {
       for (const component of componentList.manufactured_components) {
         const componentType = component.manufactured_component_type ||
-          this.MOCK_MANUFACTURED_COMPONENT_TYPES.find(t => t.id === component.manufactured_component_type_id);
+          this.MOCK_MANUFACTURED_COMPONENT_TYPES.find((t: ManufacturedComponentType) => t.id === component.manufactured_component_type_id);
 
         items.push({
           id: component.id,
@@ -229,47 +210,73 @@ export class BomService {
 
   /**
    * Get BOM for a specific body/project
-   * GET /api/bom?bodyId=:id
+   * GET /api/component-lists?furnitureBodyId=:id
+   * Note: Backend doesn't have a direct endpoint for this, so we fetch all and filter
    */
   getBom(bodyId: number): Observable<BomItem[]> {
-    // const params = new HttpParams().set('bodyId', String(bodyId));
-    // return this.http.get<ComponentList>(`${this.baseUrl}/bom`, { params }).pipe(
-    //   map(list => this.convertToBomItems(list))
-    // );
-    
-    // Mock: return BOM with delay to simulate API call
-    return of(this.convertToBomItems(this.MOCK_COMPONENT_LIST)).pipe(
-      delay(500)
+    return this.http.get<ComponentListDTO[]>(`${this.baseUrl}/component-lists`).pipe(
+      map(dtos => {
+        // Find component list for the given furniture body ID
+        const dto = dtos.find(cl => cl.furnitureBodyId === bodyId);
+        if (!dto) {
+          return [];
+        }
+        const componentList = this.mapDtoToComponentList(dto);
+        return this.convertToBomItems(componentList);
+      }),
+      catchError(error => {
+        console.error('Error fetching BOM:', error);
+        return of([]);
+      })
     );
   }
 
   /**
    * Get all BOMs
-   * GET /api/bom
+   * GET /api/component-lists
    */
   getBoms(): Observable<BomItem[]> {
-    // return this.http.get<ComponentList[]>(`${this.baseUrl}/bom`).pipe(
-    //   map(lists => lists.flatMap(list => this.convertToBomItems(list)))
-    // );
-    
-    // Mock: return single BOM
-    return of(this.convertToBomItems(this.MOCK_COMPONENT_LIST)).pipe(
-      delay(300)
+    return this.http.get<ComponentListDTO[]>(`${this.baseUrl}/component-lists`).pipe(
+      map(dtos => {
+        const allItems: BomItem[] = [];
+        dtos.forEach(dto => {
+          const componentList = this.mapDtoToComponentList(dto);
+          allItems.push(...this.convertToBomItems(componentList));
+        });
+        return allItems;
+      }),
+      catchError(error => {
+        console.error('Error fetching BOMs:', error);
+        return of([]);
+      })
     );
   }
 
   /**
    * Get BOM for a specific project
-   * GET /api/bom?projectId=:projectId
+   * GET /api/component-lists (filtered by furnitureBodyId if projectId provided)
    */
   getBomForProject(projectId?: number): Observable<BomItem[]> {
-    // const params = projectId ? new HttpParams().set('projectId', String(projectId)) : undefined;
-    // return this.http.get<ComponentList>(`${this.baseUrl}/bom`, params ? { params } : {}).pipe(
-    //   map(list => this.convertToBomItems(list))
-    // );
+    if (projectId) {
+      // If projectId is provided, treat it as furnitureBodyId
+      return this.getBom(projectId);
+    }
     
-    return of(this.convertToBomItems(this.MOCK_COMPONENT_LIST)).pipe(
-      delay(400)
+    // If no projectId, return all BOMs
+    return this.getBoms();
+  }
+
+  /**
+   * Get component list by ID
+   * GET /api/component-lists/:id
+   */
+  getComponentListById(id: number): Observable<ComponentList | null> {
+    return this.http.get<ComponentListDTO>(`${this.baseUrl}/component-lists/${id}`).pipe(
+      map(dto => this.mapDtoToComponentList(dto)),
+      catchError(error => {
+        console.error('Error fetching component list:', error);
+        return of(null);
+      })
     );
   }
 
@@ -278,6 +285,21 @@ export class BomService {
    */
   getFurnitureItems(): Observable<FurnitureBackendItem[]> {
     return this.http.get<FurnitureBackendItem[]>(`${this.baseUrl}/furniture/all`);
+  }
+
+  /**
+   * Save furniture and create component list
+   * POST /api/furniture?createdBy=:userId
+   * This uses the ComponentListController endpoint instead of FurnitureController
+   */
+  saveFurnitureAndComponentList(furnitureBody: FurnitureBodyDTO, createdBy: number): Observable<ComponentListDTO> {
+    const params = new HttpParams().set('createdBy', String(createdBy));
+    return this.http.post<ComponentListDTO>(`${this.baseUrl}/furniture`, furnitureBody, { params }).pipe(
+      catchError(error => {
+        console.error('Error saving furniture and component list:', error);
+        throw error;
+      })
+    );
   }
 
   /**
@@ -330,19 +352,22 @@ export class BomService {
 
   /**
    * Export BOM to CSV
-   * GET /api/bom/export?projectId=:projectId&format=csv
+   * Note: Backend doesn't have an export endpoint, so we generate CSV on the frontend
    */
   exportBomToCsv(projectId: number): Observable<Blob> {
-    // return this.http.get(`${this.baseUrl}/bom/export`, {
-    //   params: new HttpParams().set('projectId', String(projectId)).set('format', 'csv'),
-    //   responseType: 'blob'
-    // });
-    
-    // Mock: create a simple CSV blob
-    const bomItems = this.convertToBomItems(this.MOCK_COMPONENT_LIST);
-    const csvContent = this.generateCsv(bomItems);
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    return of(blob).pipe(delay(300));
+    // Fetch actual BOM data and generate CSV
+    return this.getBomForProject(projectId).pipe(
+      map(bomItems => {
+        const csvContent = this.generateCsv(bomItems);
+        return new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      }),
+      catchError(error => {
+        console.error('Error exporting BOM to CSV:', error);
+        // Return empty CSV on error
+        const emptyCsv = new Blob([''], { type: 'text/csv;charset=utf-8;' });
+        return of(emptyCsv);
+      })
+    );
   }
 
   /**
